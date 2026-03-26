@@ -1,12 +1,17 @@
 #!/usr/bin/python
 import numpy as np
+from model.blc import get_bayer_slices
+
 
 class WBGC:
-    'Auto White Balance Gain Control'
+    """Auto White Balance Gain Control
+
+    Applies per-channel gain to compensate for illuminant color temperature.
+    """
 
     def __init__(self, img, parameter, bayer_pattern, clip):
         self.img = img
-        self.parameter = parameter
+        self.parameter = parameter      # [r_gain, gr_gain, gb_gain, b_gain]
         self.bayer_pattern = bayer_pattern
         self.clip = clip
 
@@ -15,48 +20,15 @@ class WBGC:
         return self.img
 
     def execute(self):
-        r_gain = self.parameter[0]
-        gr_gain = self.parameter[1]
-        gb_gain = self.parameter[2]
-        b_gain = self.parameter[3]
-        raw_h = self.img.shape[0]
-        raw_w = self.img.shape[1]
+        r_gain, gr_gain, gb_gain, b_gain = self.parameter
+        slices = get_bayer_slices(self.bayer_pattern)
+
+        raw_h, raw_w = self.img.shape
         awb_img = np.empty((raw_h, raw_w), np.int16)
-        if self.bayer_pattern == 'rggb':
-            r = self.img[::2, ::2] * r_gain
-            b = self.img[1::2, 1::2] * b_gain
-            gr = self.img[::2, 1::2] * gr_gain
-            gb = self.img[1::2, ::2] * gb_gain
-            awb_img[::2, ::2] = r
-            awb_img[::2, 1::2] = gr
-            awb_img[1::2, ::2] = gb
-            awb_img[1::2, 1::2] = b
-        elif self.bayer_pattern == 'bggr':
-            b = self.img[::2, ::2] * b_gain
-            r = self.img[1::2, 1::2] * r_gain
-            gb = self.img[::2, 1::2] * gb_gain
-            gr = self.img[1::2, ::2] * gr_gain
-            awb_img[::2, ::2] = b
-            awb_img[::2, 1::2] = gb
-            awb_img[1::2, ::2] = gr
-            awb_img[1::2, 1::2] = r
-        elif self.bayer_pattern == 'gbrg':
-            b = self.img[::2, 1::2] * b_gain
-            r = self.img[1::2, ::2] * r_gain
-            gb = self.img[::2, ::2] * gb_gain
-            gr = self.img[1::2, 1::2] * gr_gain
-            awb_img[::2, ::2] = gb
-            awb_img[::2, 1::2] = b
-            awb_img[1::2, ::2] = r
-            awb_img[1::2, 1::2] = gr
-        elif self.bayer_pattern == 'grbg':
-            r = self.img[::2, 1::2] * r_gain
-            b = self.img[1::2, ::2] * b_gain
-            gr = self.img[::2, ::2] * gr_gain
-            gb = self.img[1::2, 1::2] * gb_gain
-            awb_img[::2, ::2] = gr
-            awb_img[::2, 1::2] = r
-            awb_img[1::2, ::2] = b
-            awb_img[1::2, 1::2] = gb
+
+        gains = {'r': r_gain, 'gr': gr_gain, 'gb': gb_gain, 'b': b_gain}
+        for channel, gain in gains.items():
+            awb_img[slices[channel]] = self.img[slices[channel]] * gain
+
         self.img = awb_img
         return self.clipping()

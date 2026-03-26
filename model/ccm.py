@@ -9,16 +9,8 @@ class CCM:
         self.ccm = ccm
 
     def execute(self):
-        img_h = self.img.shape[0]
-        img_w = self.img.shape[1]
-        img_c = self.img.shape[2]
-        ccm_img = np.empty((img_h, img_w, img_c), np.uint32)
-        for y in range(img_h):
-            for x in range(img_w):
-                mulval = self.ccm[:,0:3] * self.img[y,x,:]
-                ccm_img[y,x,0] = np.sum(mulval[0]) + self.ccm[0,3]
-                ccm_img[y,x,1] = np.sum(mulval[1]) + self.ccm[1,3]
-                ccm_img[y,x,2] = np.sum(mulval[2]) + self.ccm[2,3]
-                ccm_img[y,x,:] = ccm_img[y,x,:] / 1024
-        self.img = ccm_img.astype(np.uint8)
+        # 向量化矩阵乘法: img (H,W,3) x ccm (3,3)^T + offset (3,)
+        ccm_img = np.dot(self.img.astype(np.int32), self.ccm[:, 0:3].T) + self.ccm[:, 3]
+        ccm_img = ccm_img / 1024
+        self.img = np.clip(ccm_img, 0, 255).astype(np.uint8)
         return self.img

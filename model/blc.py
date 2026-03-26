@@ -1,12 +1,60 @@
 #!/usr/bin/python
 import numpy as np
 
+
+# Bayer pattern layout: maps pattern name to (row, col) sub-grid slices
+# for each color channel [R, Gr, Gb, B]
+BAYER_SLICES = {
+    'rggb': {
+        'r':  (slice(None, None, 2), slice(None, None, 2)),    # even row, even col
+        'gr': (slice(None, None, 2), slice(1, None, 2)),       # even row, odd col
+        'gb': (slice(1, None, 2),    slice(None, None, 2)),    # odd row, even col
+        'b':  (slice(1, None, 2),    slice(1, None, 2)),       # odd row, odd col
+    },
+    'bggr': {
+        'b':  (slice(None, None, 2), slice(None, None, 2)),
+        'gb': (slice(None, None, 2), slice(1, None, 2)),
+        'gr': (slice(1, None, 2),    slice(None, None, 2)),
+        'r':  (slice(1, None, 2),    slice(1, None, 2)),
+    },
+    'gbrg': {
+        'gb': (slice(None, None, 2), slice(None, None, 2)),
+        'b':  (slice(None, None, 2), slice(1, None, 2)),
+        'r':  (slice(1, None, 2),    slice(None, None, 2)),
+        'gr': (slice(1, None, 2),    slice(1, None, 2)),
+    },
+    'grbg': {
+        'gr': (slice(None, None, 2), slice(None, None, 2)),
+        'r':  (slice(None, None, 2), slice(1, None, 2)),
+        'b':  (slice(1, None, 2),    slice(None, None, 2)),
+        'gb': (slice(1, None, 2),    slice(1, None, 2)),
+    },
+}
+
+
+def get_bayer_slices(bayer_pattern):
+    """Return a dict mapping channel name -> (row_slice, col_slice).
+
+    Raises ValueError if pattern is unknown.
+    """
+    if bayer_pattern not in BAYER_SLICES:
+        raise ValueError(
+            f"Unknown Bayer pattern '{bayer_pattern}'. "
+            f"Valid patterns: {list(BAYER_SLICES.keys())}"
+        )
+    return BAYER_SLICES[bayer_pattern]
+
+
 class BLC:
-    'Black Level Compensation'
+    """Black Level Compensation
+
+    Subtracts black level offsets per-channel and applies cross-talk
+    compensation (alpha for Gr←R, beta for Gb←B).
+    """
 
     def __init__(self, img, parameter, bayer_pattern, clip):
         self.img = img
-        self.parameter = parameter
+        self.parameter = parameter      # [bl_r, bl_gr, bl_gb, bl_b, alpha, beta]
         self.bayer_pattern = bayer_pattern
         self.clip = clip
 
@@ -15,51 +63,25 @@ class BLC:
         return self.img
 
     def execute(self):
-        bl_r = self.parameter[0]
-        bl_gr = self.parameter[1]
-        bl_gb = self.parameter[2]
-        bl_b = self.parameter[3]
-        alpha = self.parameter[4]
-        beta = self.parameter[5]
-        raw_h = self.img.shape[0]
-        raw_w = self.img.shape[1]
-        blc_img = np.empty((raw_h,raw_w), np.int16)
-        if self.bayer_pattern == 'rggb':
-            r = self.img[::2, ::2] + bl_r
-            b = self.img[1::2, 1::2] + bl_b
-            gr = self.img[::2, 1::2] + bl_gr + alpha * r / 256
-            gb = self.img[1::2, ::2] + bl_gb + beta * b / 256
-            blc_img[::2, ::2] = r
-            blc_img[::2, 1::2] = gr
-            blc_img[1::2, ::2] = gb
-            blc_img[1::2, 1::2] = b
-        elif self.bayer_pattern == 'bggr':
-            b = self.img[::2, ::2] + bl_b
-            r = self.img[1::2, 1::2] + bl_r
-            gb = self.img[::2, 1::2] + bl_gb + beta * b / 256
-            gr = self.img[1::2, ::2] + bl_gr + alpha * r / 256
-            blc_img[::2, ::2] = b
-            blc_img[::2, 1::2] = gb
-            blc_img[1::2, ::2] = gr
-            blc_img[1::2, 1::2] = r
-        elif self.bayer_pattern == 'gbrg':
-            b = self.img[::2, 1::2] + bl_b
-            r = self.img[1::2, ::2] + bl_r
-            gb = self.img[::2, ::2] + bl_gb + beta * b / 256
-            gr = self.img[1::2, 1::2] + bl_gr + alpha * r / 256
-            blc_img[::2, ::2] = gb
-            blc_img[::2, 1::2] = b
-            blc_img[1::2, ::2] = r
-            blc_img[1::2, 1::2] = gr
-        elif self.bayer_pattern == 'grbg':
-            r = self.img[::2, 1::2] + bl_r
-            b = self.img[1::2, ::2] + bl_b
-            gr = self.img[::2, ::2] + bl_gr + alpha * r / 256
-            gb = self.img[1::2, 1::2] + bl_gb + beta * b / 256
-            blc_img[::2, ::2] = gr
-            blc_img[::2, 1::2] = r
-            blc_img[1::2, ::2] = b
-            blc_img[1::2, 1::2] = gb
+        bl_r, bl_gr, bl_gb, bl_b, alpha, beta = self.parameter
+        slices = get_bayer_slices(self.bayer_pattern)
+
+        raw_h, raw_w = self.img.shape
+        blc_img = np.empty((raw_h, raw_w), np.int16)
+
+        # Apply black level offset to R and B first (needed for cross-talk)
+        r = self.img[slices['r']] + bl_r
+        b = self.img[slices['b']] + bl_b
+
+        # Gr and Gb with cross-talk compensation
+        gr = self.img[slices['gr']] + bl_gr + alpha * r / 256
+        gb = self.img[slices['gb']] + bl_gb + beta * b / 256
+
+        # Write back to output
+        blc_img[slices['r']] = r
+        blc_img[slices['gr']] = gr
+        blc_img[slices['gb']] = gb
+        blc_img[slices['b']] = b
+
         self.img = blc_img
         return self.clipping()
-

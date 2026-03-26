@@ -84,14 +84,14 @@ with f:
             bl_b  = int(value) if '_b' in str(parameter) else bl_b
             alpha = int(value) if '_alpha' in str(parameter) else alpha
             beta  = int(value) if '_beta' in str(parameter) else beta
-            blc_clip = int(value) if '_clip' in str(parameter) else beta
+            blc_clip = int(value) if '_clip' in str(parameter) else blc_clip
         elif 'bayer_pattern' in str(parameter):
             bayer_pattern = str(value)
         elif 'awb' in str(parameter):
-            r_gain  = int(value) if '_rgain' in str(parameter) else r_gain
-            gr_gain = int(value) if '_grgain' in str(parameter) else gr_gain
-            gb_gain = int(value) if '_gbgain' in str(parameter) else gb_gain
-            b_gain  = int(value) if '_bgain' in str(parameter) else b_gain
+            r_gain  = float(value) if 'r_gain' in str(parameter) and 'gr_gain' not in str(parameter) else r_gain
+            gr_gain = float(value) if 'gr_gain' in str(parameter) else gr_gain
+            gb_gain = float(value) if 'gb_gain' in str(parameter) else gb_gain
+            b_gain  = float(value) if 'b_gain' in str(parameter) and 'gb_gain' not in str(parameter) else b_gain
             awb_clip = int(value) if '_clip' in str(parameter) else awb_clip
         elif 'cfa' in str(parameter):
             cfa_mode = str(value) if '_mode' in str(parameter) else cfa_mode
@@ -138,6 +138,16 @@ with f:
             bnf_dw[2][2] = int(value) if '_dw_22' in str(parameter) else bnf_dw[2][2]
             bnf_dw[2][3] = int(value) if '_dw_23' in str(parameter) else bnf_dw[2][3]
             bnf_dw[2][4] = int(value) if '_dw_24' in str(parameter) else bnf_dw[2][4]
+            bnf_dw[3][0] = int(value) if '_dw_30' in str(parameter) else bnf_dw[3][0]
+            bnf_dw[3][1] = int(value) if '_dw_31' in str(parameter) else bnf_dw[3][1]
+            bnf_dw[3][2] = int(value) if '_dw_32' in str(parameter) else bnf_dw[3][2]
+            bnf_dw[3][3] = int(value) if '_dw_33' in str(parameter) else bnf_dw[3][3]
+            bnf_dw[3][4] = int(value) if '_dw_34' in str(parameter) else bnf_dw[3][4]
+            bnf_dw[4][0] = int(value) if '_dw_40' in str(parameter) else bnf_dw[4][0]
+            bnf_dw[4][1] = int(value) if '_dw_41' in str(parameter) else bnf_dw[4][1]
+            bnf_dw[4][2] = int(value) if '_dw_42' in str(parameter) else bnf_dw[4][2]
+            bnf_dw[4][3] = int(value) if '_dw_43' in str(parameter) else bnf_dw[4][3]
+            bnf_dw[4][4] = int(value) if '_dw_44' in str(parameter) else bnf_dw[4][4]
             bnf_rw[0] = int(value) if '_rw_0' in str(parameter) else bnf_rw[0]
             bnf_rw[1] = int(value) if '_rw_1' in str(parameter) else bnf_rw[1]
             bnf_rw[2] = int(value) if '_rw_2' in str(parameter) else bnf_rw[2]
@@ -171,7 +181,7 @@ with f:
             ee_emclip[1] = int(value) if 'emclip_max' in str(parameter) else ee_emclip[1]
         elif 'fcs' in str(parameter):
             fcs_edge[0] = int(value) if 'edge_min' in str(parameter) else fcs_edge[0]
-            fcs_edge[1] = int(value) if 'edge_min' in str(parameter) else fcs_edge[1]
+            fcs_edge[1] = int(value) if 'edge_max' in str(parameter) else fcs_edge[1]
             fcs_gain = int(value) if '_gain' in str(parameter) else fcs_gain
             fcs_intercept = int(value) if '_intercept' in str(parameter) else fcs_intercept
             fcs_slope = int(value) if '_slope' in str(parameter) else fcs_slope
@@ -267,7 +277,7 @@ print(50*'-' + '\nGamma Correction Done......')
 #plt.show()
 
 # color space conversion
-csc = CSC(rgbimg_ccm, csc)
+csc = CSC(rgbimg_gc, csc)
 yuvimg_csc = csc.execute()
 print(50*'-' + '\nColor Space Conversion Done......')
 #plt.imshow(yuvimg_csc[:,:,0], cmap='gray')

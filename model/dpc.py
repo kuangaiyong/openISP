@@ -1,8 +1,15 @@
 #!/usr/bin/python
 import numpy as np
 
+
 class DPC:
-    'Dead Pixel Correction'
+    """Dead Pixel Correction
+
+    Detects dead (stuck) pixels by comparing each pixel against its 8
+    same-color neighbors (stride-2 in Bayer space).  If ALL neighbors differ
+    by more than *thres*, the pixel is replaced using either the cross-neighbor
+    mean or the minimum-gradient direction.
+    """
 
     def __init__(self, img, thres, mode, clip):
         self.img = img
@@ -19,59 +26,76 @@ class DPC:
         return self.img
 
     def execute(self):
+        """Vectorized dead-pixel correction.
 
+        Pixel neighborhood layout (stride-2 on the Bayer grid):
+
+            p1  p2  p3
+            p4  p0  p5
+            p6  p7  p8
         """
-        Pixel array in code is showed above:
-
-        p1 p2 p3
-        p4 p0 p5
-        p6 p7 p8
-
-        it makes sense for calculating follow-up gradients of pixel values (horizontal,vertical,left/right diagonal).
-        """
-
-
-        img_pad = self.padding()
+        img_pad = self.padding().astype(np.int32)
         raw_h = self.img.shape[0]
         raw_w = self.img.shape[1]
-        dpc_img = np.empty((raw_h, raw_w), np.uint16) 
-        # change uint16 to int_, still exists overflow warning  in the following abs calculation
-        for y in range(img_pad.shape[0] - 4):
-            for x in range(img_pad.shape[1] - 4):
 
+        # Extract the 9 pixel views (center + 8 neighbors)
+        # img_pad has shape (raw_h+4, raw_w+4); after offset each view is (raw_h, raw_w)
+        p0 = img_pad[2:2 + raw_h, 2:2 + raw_w]        # center
+        p1 = img_pad[0:0 + raw_h, 0:0 + raw_w]        # top-left
+        p2 = img_pad[0:0 + raw_h, 2:2 + raw_w]        # top-center
+        p3 = img_pad[0:0 + raw_h, 4:4 + raw_w]        # top-right
+        p4 = img_pad[2:2 + raw_h, 0:0 + raw_w]        # mid-left
+        p5 = img_pad[2:2 + raw_h, 4:4 + raw_w]        # mid-right
+        p6 = img_pad[4:4 + raw_h, 0:0 + raw_w]        # bot-left
+        p7 = img_pad[4:4 + raw_h, 2:2 + raw_w]        # bot-center
+        p8 = img_pad[4:4 + raw_h, 4:4 + raw_w]        # bot-right
 
+        # Dead pixel mask: ALL 8 neighbors differ from center by > threshold
+        dead = (
+            (np.abs(p1 - p0) > self.thres) &
+            (np.abs(p2 - p0) > self.thres) &
+            (np.abs(p3 - p0) > self.thres) &
+            (np.abs(p4 - p0) > self.thres) &
+            (np.abs(p5 - p0) > self.thres) &
+            (np.abs(p6 - p0) > self.thres) &
+            (np.abs(p7 - p0) > self.thres) &
+            (np.abs(p8 - p0) > self.thres)
+        )
 
-                p0 = img_pad[y + 2, x + 2].astype(int)
-                p1 = img_pad[y, x].astype(int)
-                p2 = img_pad[y, x + 2].astype(int)
-                p3 = img_pad[y, x + 4].astype(int)
-                p4 = img_pad[y + 2, x].astype(int)
-                p5 = img_pad[y + 2, x + 4].astype(int)
-                p6 = img_pad[y + 4, x].astype(int)
-                p7 = img_pad[y + 4, x + 2].astype(int)
-                p8 = img_pad[y + 4, x + 4].astype(int)
+        # Start with the original center values
+        result = p0.copy()
 
+        if self.mode == 'mean':
+            # Replace dead pixels with cross-neighbor mean
+            replacement = (p2 + p4 + p5 + p7) // 4
+            result[dead] = replacement[dead]
 
+        elif self.mode == 'gradient':
+            # Compute directional gradients for all pixels
+            dv  = np.abs(2 * p0 - p2 - p7)   # vertical
+            dh  = np.abs(2 * p0 - p4 - p5)   # horizontal
+            ddl = np.abs(2 * p0 - p1 - p8)   # diagonal left (top-left to bot-right)
+            ddr = np.abs(2 * p0 - p3 - p6)   # diagonal right (top-right to bot-left)
 
-                if (abs(p1 - p0) > self.thres) and (abs(p2 - p0) > self.thres) and (abs(p3 - p0) > self.thres) \
-                        and (abs(p4 - p0) > self.thres) and (abs(p5 - p0) > self.thres) and (abs(p6 - p0) > self.thres) \
-                        and (abs(p7 - p0) > self.thres) and (abs(p8 - p0) > self.thres):
-                    if self.mode == 'mean':
-                        p0 = (p2 + p4 + p5 + p7) / 4
-                    elif self.mode == 'gradient':
-                        dv = abs(2 * p0 - p2 - p7)
-                        dh = abs(2 * p0 - p4 - p5)
-                        ddl = abs(2 * p0 - p1 - p8)
-                        ddr = abs(2 * p0 - p3 - p6)
-                        if (min(dv, dh, ddl, ddr) == dv):
-                            p0 = (p2 + p7 + 1) / 2
-                        elif (min(dv, dh, ddl, ddr) == dh):
-                            p0 = (p4 + p5 + 1) / 2
-                        elif (min(dv, dh, ddl, ddr) == ddl):
-                            p0 = (p1 + p8 + 1) / 2
-                        else:
-                            p0 = (p3 + p6 + 1) / 2
-                dpc_img[y, x] = p0.astype('uint16')
-        self.img = dpc_img
+            # Replacement values for each direction (with +1 rounding like original)
+            rv  = (p2 + p7 + 1) // 2
+            rh  = (p4 + p5 + 1) // 2
+            rdl = (p1 + p8 + 1) // 2
+            rdr = (p3 + p6 + 1) // 2
+
+            # Stack gradients and replacements to find minimum gradient direction
+            gradients = np.stack([dv, dh, ddl, ddr], axis=-1)       # (H, W, 4)
+            replacements = np.stack([rv, rh, rdl, rdr], axis=-1)    # (H, W, 4)
+
+            # Index of minimum gradient at each pixel
+            min_idx = np.argmin(gradients, axis=-1)                 # (H, W)
+
+            # Gather replacement values at the min-gradient direction
+            # Use advanced indexing: replacements[y, x, min_idx[y,x]]
+            rows, cols = np.mgrid[0:raw_h, 0:raw_w]
+            grad_replacement = replacements[rows, cols, min_idx]
+
+            result[dead] = grad_replacement[dead]
+
+        self.img = result.astype(np.uint16)
         return self.clipping()
-

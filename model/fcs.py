@@ -17,18 +17,20 @@ class FCS:
         return self.img
 
     def execute(self):
-        img_h = self.img.shape[0]
-        img_w = self.img.shape[1]
-        img_c = self.img.shape[2]
-        fcs_img = np.empty((img_h, img_w, img_c), np.int16)
-        for y in range(img_h):
-            for x in range(img_w):
-                if np.abs(self.edgemap[y,x]) <= self.fcs_edge[0]:
-                    uvgain = self.gain
-                elif np.abs(self.edgemap[y,x]) > self.fcs_edge[0] and np.abs(self.edgemap[y,x]) < self.fcs_edge[1]:
-                    uvgain = self.intercept - self.slope * self.edgemap[y,x]
-                else:
-                    uvgain = 0
-                fcs_img[y,x,:] = uvgain * (self.img[y,x,:]) / 256 + 128
-        self.img = fcs_img
+        abs_edge = np.abs(self.edgemap).astype(np.float64)
+
+        # 向量化条件: 分三段计算 uvgain
+        uvgain = np.where(
+            abs_edge <= self.fcs_edge[0],
+            self.gain,
+            np.where(
+                abs_edge < self.fcs_edge[1],
+                self.intercept - self.slope * abs_edge,
+                0
+            )
+        ).astype(np.float64)
+
+        # 广播乘法: uvgain (H,W) * img (H,W,2) / 256 + 128
+        fcs_img = uvgain[:, :, np.newaxis] * self.img.astype(np.float64) / 256 + 128
+        self.img = fcs_img.astype(np.int16)
         return self.clipping()
